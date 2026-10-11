@@ -1,0 +1,103 @@
+# Crisis-Grid: Emergency Resource Allocator System — Project Summary
+
+---
+
+## Executive Overview
+
+**Crisis-Grid** is an emergency response & healthcare logistics platform designed to optimize emergency ambulance routing and ICU bed allocation in real-time. The system processes field location signals, patient vital signs, and natural-language dispatch text to match incoming ambulances with the optimal receiving hospital across major Tamil Nadu medical centers (Chennai, Coimbatore, Madurai, Trichy).
+
+---
+
+## Key Capabilities Built
+
+1. **Smart Emergency Allocation Algorithm**: Calculates optimal hospital receiving units based on distance, travel ETA, bed availability ratios, patient severity, and specialized care matching (ICU, Cath Lab, Burn Unit, Neuro ICU, Trauma).
+2. **AI Emergency Triage Engine**: Automatically analyzes patient symptoms and vitals (SpO2, Pulse, Blood Pressure, Temperature) to assign clinical severity (Levels 1–5) and infer required specialties.
+3. **NLP Dispatch Intake**: Parses dispatch audio/text transcripts to extract GPS coordinates, location keywords, urgency scores, and medical specialty requirements.
+4. **Predictive Capacity & Bed Forecasting**: Projects hospital bed availability for 1-hour, 3-hour, and 6-hour windows using discharge velocity models and capacity strain risk alerts.
+5. **Real-Time Command Map**: Visualizes hospital network status, live ambulance markers, and active routing polyline paths on an interactive OpenStreetMap view.
+6. **Real-Time WebSocket Synchronization**: Broadcasts capacity updates and allocations live across all connected clients.
+
+---
+
+## Technical Architecture
+
+```
+ambulance1/
+├── backend/                  # FastAPI Python Backend
+│   ├── ai/                   # AI & Mathematical Engine Modules
+│   │   ├── triage_engine.py  # Clinical triage & severity classification
+│   │   ├── nlp_dispatch.py   # Natural language dispatch parsing
+│   │   └── forecasting.py   # Bed utilization & capacity strain forecasting
+│   ├── main.py               # REST API endpoints, allocation logic & WebSockets
+│   └── requirements.txt      # FastAPI, Uvicorn, Geopy, Pydantic
+└── frontend/                 # React 18 + Vite Frontend
+    ├── src/
+    │   ├── components/       # UI Dashboard components
+    │   │   ├── HospitalAdmin.jsx     # Bed control & capacity management
+    │   │   ├── AmbulanceSOS.jsx      # SOS dispatch field console
+    │   │   ├── AIChatAssistant.jsx   # Voice/Text NLP dispatch assistant
+    │   │   ├── CommandCenterMap.jsx  # Geospatial Leaflet map & route visualizer
+    │   │   ├── TelemetryPanel.jsx    # Recharts capacity visualization
+    │   │   └── Navbar.jsx            # Network stats & tab navigation
+    │   ├── utils/
+    │   │   └── leafletIcons.js       # Dynamic Leaflet map pin markers
+    │   ├── api.js                    # Axios API client wrapper
+    │   └── App.jsx                   # Main state & view switcher
+    └── package.json                  # React, React-Leaflet, Recharts, Lucide-React
+```
+
+---
+
+## Module Details
+
+### 1. Backend & AI Engines (`backend/`)
+
+* **FastAPI Server (`main.py`)**:
+  * Manages default hospital records across Chennai, Coimbatore, Madurai, and Trichy.
+  * Multi-Factor Scoring Formula balancing distance, estimated ETA (30 km/h avg speed), available beds, capacity penalties, and specialty match bonuses.
+  * Real-time WebSocket channel (`/ws`) for live broadcast updates.
+* **Triage Engine (`ai/triage_engine.py`)**:
+  * Evaluates symptoms (e.g., cardiac arrest, stroke, severe burns, fractures) and vitals (`pulse > 130`, `systolic < 90`, `spo2 < 90`).
+  * Assigns triage labels: *Minor (1)*, *Low (2)*, *Moderate (3)*, *High (4)*, or *Critical (5)*.
+* **NLP Dispatch Engine (`ai/nlp_dispatch.py`)**:
+  * Extracted intent via keyword scanning and regex extraction for explicit `lat/lng` values or location fallbacks (Guindy, Chennai, Coimbatore, Madurai, Trichy).
+* **Predictive Forecasting Engine (`ai/forecasting.py`)**:
+  * Uses discharge velocity (1.2 beds/hr) vs. incoming trend (1.0 beds/hr) to compute 1h, 3h, and 6h bed availability projections and risk flags (*Stable Capacity* vs. *High Risk of Capacity Strain*).
+
+### 2. Frontend User Interface (`frontend/`)
+
+* **Hospital Admin Panel (`src/components/HospitalAdmin.jsx`)**: Facility cards with progress tracks, manual bed increment/decrement buttons, capacity utilization percentage, and AI forecast counters.
+* **Ambulance Field SOS Console (`src/components/AmbulanceSOS.jsx`)**: GPS location inputs, quick presets for major transit hubs, SOS broadcast button, and confirmation modal with allocation metrics (distance, ETA, optimization score).
+* **AI Dispatch Assistant (`src/components/AIChatAssistant.jsx`)**: Speech/text intake UI to parse freeform emergency call descriptions and dispatch immediately.
+* **Command Center Map (`src/components/CommandCenterMap.jsx`)**: Leaflet map rendered with dynamic green/red hospital markers, blue ambulance location, and cyan routing line connecting ambulance to allocated hospital.
+* **Telemetry & Analytics (`src/components/TelemetryPanel.jsx`)**: Recharts multi-bar chart comparing current available beds against 1h and 3h projected bed availability.
+
+---
+
+## Backend API Reference
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/hospitals` | `GET` | Returns list of hospitals enriched with AI forecast data |
+| `/api/allocate` | `POST` | Allocates the optimal hospital for a given patient/location |
+| `/api/hospitals/{id}/beds` | `POST` | Manually updates available beds (+1 / -1) |
+| `/api/dispatch/parse` | `POST` | Parses natural language text into location/triage intent and allocates |
+| `/api/reset` | `POST` | Resets hospital dataset back to default state |
+| `/ws` | `WebSocket` | Real-time WebSocket connection for streaming network state |
+
+---
+
+## Component Summary Table
+
+| Layer | File | Purpose / Role |
+| :--- | :--- | :--- |
+| **Backend** | `main.py` | Main FastAPI server & allocation logic |
+| **Backend AI** | `ai/triage_engine.py` | Clinical triage & vitals scoring |
+| **Backend AI** | `ai/nlp_dispatch.py` | Freeform text dispatch parser |
+| **Backend AI** | `ai/forecasting.py` | Predictive capacity strain model |
+| **Frontend** | `App.jsx` | Main React container & state manager |
+| **Frontend** | `components/HospitalAdmin.jsx` | Bed capacity control dashboard |
+| **Frontend** | `components/AmbulanceSOS.jsx` | Field dispatch SOS interface |
+| **Frontend** | `components/AIChatAssistant.jsx` | Voice & Text NLP intake assistant |
+| **Frontend** | `components/CommandCenterMap.jsx` | Geospatial map & active route overlay |
+| **Frontend** | `components/TelemetryPanel.jsx` | Recharts analytics visualization |
