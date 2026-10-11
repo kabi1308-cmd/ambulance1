@@ -31,14 +31,21 @@ def extract_dispatch_intent(raw_text: str) -> dict[str, Any]:
     elif any(word in lowered for word in ["accident", "fracture", "bleeding", "trauma"]):
         specialty = "Trauma"
 
-    lat_match = re.search(r"lat(?:itude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)", text, re.I)
-    lng_match = re.search(r"lng|lon(?:gitude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)", text, re.I)
+    lat_match = re.search(r"(?:lat(?:itude)?)\s*[:=]?\s*(-?\d+(?:\.\d+)?)", text, re.I)
+    lng_match = re.search(r"(?:lng|lon(?:gitude)?)\s*[:=]?\s*(-?\d+(?:\.\d+)?)", text, re.I)
 
-    # Use explicit coordinates if provided; fall back to city keyword mapping
-    if lat_match and lng_match:
-        lat = float(lat_match.group(1))
-        lng = float(lng_match.group(1))
-    else:
+    lat, lng = None, None
+    if lat_match and lng_match and lat_match.group(1) is not None and lng_match.group(1) is not None:
+        try:
+            cand_lat = float(lat_match.group(1))
+            cand_lng = float(lng_match.group(1))
+            if -90.0 <= cand_lat <= 90.0 and -180.0 <= cand_lng <= 180.0:
+                lat, lng = cand_lat, cand_lng
+        except (ValueError, TypeError):
+            lat, lng = None, None
+
+    # Fall back to city keyword mapping or default coordinates if coordinates missing/invalid
+    if lat is None or lng is None:
         lat, lng = 13.0827, 80.2707
         location_keywords = {
             "guindy": (13.0094, 80.2183),

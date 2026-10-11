@@ -11,6 +11,7 @@ import AmbulanceSOS from "./components/AmbulanceSOS";
 import CommandCenterMap from "./components/CommandCenterMap";
 import TelemetryPanel from "./components/TelemetryPanel";
 import AIChatAssistant from "./components/AIChatAssistant";
+import { formatApiError } from "./utils/errorFormatter";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("admin");
@@ -28,7 +29,7 @@ export default function App() {
   useEffect(() => {
     fetchHospitals()
       .then(setHospitals)
-      .catch(() => setError("Unable to connect to the command server."))
+      .catch((err) => setError(formatApiError(err, "Unable to connect to the command server.")))
       .finally(() => setLoading(false));
 
     const wsUrl = (import.meta.env.VITE_API_URL || "http://localhost:8000")
@@ -62,8 +63,8 @@ export default function App() {
     try {
       const response = await updateHospitalBeds(id, delta);
       setHospitals(response.updated_hospitals);
-    } catch {
-      setError("Bed update failed.");
+    } catch (err) {
+      setError(formatApiError(err, "Bed update failed."));
     } finally {
       setUpdating(null);
     }
@@ -74,8 +75,8 @@ export default function App() {
     try {
       setHospitals(await resetHospitals());
       setLastAllocation(null);
-    } catch {
-      setError("Reset failed.");
+    } catch (err) {
+      setError(formatApiError(err, "Reset failed."));
     } finally {
       setResetting(false);
     }
@@ -102,7 +103,7 @@ export default function App() {
       />
       {error && (
         <button className="global-error" onClick={() => setError("")}>
-          {error} <span>×</span>
+          {String(error)} <span>×</span>
         </button>
       )}
       {loading ? (

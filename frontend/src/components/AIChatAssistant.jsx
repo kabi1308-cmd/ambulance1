@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Mic, Send, Sparkles } from "lucide-react";
 import { parseDispatchText } from "../api";
+import { formatApiError } from "../utils/errorFormatter";
 
 export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
   const [input, setInput] = useState("45yo male experiencing acute chest pain near Guindy, Chennai");
@@ -19,7 +20,7 @@ export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
       });
       onViewMap();
     } catch (error) {
-      setResult({ error: "AI parser unavailable. Please retry." });
+      setResult({ error: formatApiError(error, "AI parser unavailable. Please retry.") });
     } finally {
       setBusy(false);
     }

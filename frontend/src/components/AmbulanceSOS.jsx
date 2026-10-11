@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Crosshair, MapPin, Navigation, X, LocateFixed } from "lucide-react";
 import { triggerSOS } from "../api";
+import { formatApiError } from "../utils/errorFormatter";
 
 const presets = [
   ["Chennai Central", 13.0827, 80.2707],
@@ -63,8 +64,10 @@ export default function AmbulanceSOS({
       setResult(response);
     } catch (exception) {
       setError(
-        exception.response?.data?.detail ||
-          "Dispatch link unavailable. Check the command server.",
+        formatApiError(
+          exception,
+          "Dispatch link unavailable. Check the command server."
+        )
       );
     } finally {
       setSending(false);

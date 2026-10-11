@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from copy import deepcopy
 from typing import Any
@@ -29,6 +30,15 @@ DEFAULT_HOSPITALS: list[dict[str, Any]] = [
     {"id": "hosp-4", "name": "Trichy Community Hospital", "lat": 10.7905, "lng": 78.7047, "total_beds": 25, "available_beds": 8, "specialties": {"ICU": 5, "Cath Lab": 3, "Burn Unit": 1, "Neuro ICU": 2, "Trauma": 3}},
 ]
 hospitals = deepcopy(DEFAULT_HOSPITALS)
+
+# In-memory synchronization lock for single-process async concurrency.
+# NOTE & ARCHITECTURAL LIMITATION:
+# This asyncio.Lock provides concurrency safety within a single Python process/event-loop.
+# It does NOT provide cross-process, multi-worker (e.g. multi-process Uvicorn), or distributed
+# multi-server database transaction guarantees. In multi-server production environments,
+# atomic reservations must be enforced via atomic database transactions, Redis distributed locks,
+# or SQL conditional updates (e.g., UPDATE hospitals SET available_beds = available_beds - 1 WHERE available_beds > 0).
+allocation_lock = asyncio.Lock()
 
 
 class PatientRequest(BaseModel):
@@ -93,67 +103,78 @@ async def allocate(patient: PatientRequest) -> dict[str, Any]:
         "severity": patient.severity,
         "vitals": patient.vitals,
     })
-    eligible = [hospital for hospital in hospitals if hospital["available_beds"] > 0]
-    if not eligible:
-        raise HTTPException(status_code=400, detail="CRITICAL EMERGENCY: No available ICU beds within service radius.")
 
-    scored: list[tuple[float, float, float, dict[str, Any]]] = []
-    for hospital in eligible:
-        score, distance_km, estimated_time_mins, specialty_capacity = score_hospital(hospital, patient, triage)
-        if triage["specialty_required"] in hospital.get("specialties", {}) and hospital["specialties"][triage["specialty_required"]] > 0:
-            score -= 25.0
-        if hospital["available_beds"] <= 1:
-            score += 10.0
-        scored.append((score, distance_km, estimated_time_mins, hospital))
+    # Acquire lock for candidate evaluation, selection, and atomic bed reservation
+    async with allocation_lock:
+        eligible = [hospital for hospital in hospitals if hospital["available_beds"] > 0]
+        if not eligible:
+            raise HTTPException(status_code=400, detail="CRITICAL EMERGENCY: No available ICU beds within service radius.")
 
-    _, distance_km, estimated_time_mins, selected = min(scored, key=lambda item: item[0])
-    if selected["available_beds"] <= 0:
-        raise HTTPException(status_code=400, detail="CRITICAL EMERGENCY: No available ICU beds within service radius.")
+        scored: list[tuple[float, float, float, dict[str, Any]]] = []
+        for hospital in eligible:
+            score, distance_km, estimated_time_mins, specialty_capacity = score_hospital(hospital, patient, triage)
+            if triage["specialty_required"] in hospital.get("specialties", {}) and hospital["specialties"][triage["specialty_required"]] > 0:
+                score -= 25.0
+            if hospital["available_beds"] <= 1:
+                score += 10.0
+            scored.append((score, distance_km, estimated_time_mins, hospital))
 
-    selected["available_beds"] -= 1
-    
-    # Broadcast updated hospital state across WebSocket connections
+        best_score, distance_km, estimated_time_mins, selected = min(scored, key=lambda item: item[0])
+        if selected["available_beds"] <= 0:
+            raise HTTPException(status_code=400, detail="CRITICAL EMERGENCY: No available ICU beds within service radius.")
+
+        selected["available_beds"] -= 1
+
+        allocated_hospital_copy = deepcopy(selected)
+        updated_hospitals_snapshot = snapshot()
+
+    # Broadcast updated hospital state across WebSocket connections outside the critical lock section
     await broadcast_updates()
 
     req_spec = triage["specialty_required"]
-    spec_avail = selected.get("specialties", {}).get(req_spec, 0)
+    spec_avail = allocated_hospital_copy.get("specialties", {}).get(req_spec, 0)
     specialty_match = spec_avail > 0
-    
+
     reason = (
         f"Optimal receiving facility selected based on patient severity level {triage['severity']} ({triage['triage_label']}), "
-        f"proximity ({round(distance_km, 1)} km geodesic distance), bed capacity ({selected['available_beds']} beds open), "
+        f"proximity ({round(distance_km, 1)} km geodesic distance), bed capacity ({allocated_hospital_copy['available_beds']} beds open), "
         f"and {'specialty match (' + req_spec + ' unit available)' if specialty_match else 'general emergency/ICU capacity'}."
     )
 
     return {
-        "allocated_hospital": deepcopy(selected),
+        "allocated_hospital": allocated_hospital_copy,
         "distance_km": round(distance_km, 2),
         "estimated_time_mins": round(estimated_time_mins, 1),
-        "allocation_score": round(min(scored, key=lambda item: item[0])[0], 2),
+        "allocation_score": round(best_score, 2),
         "triage": triage,
         "specialty_match": specialty_match,
         "allocation_reason": reason,
-        "updated_hospitals": snapshot(),
+        "updated_hospitals": updated_hospitals_snapshot,
     }
 
 
 @app.post("/api/hospitals/{hospital_id}/beds")
 async def update_beds(hospital_id: str, change: BedDelta) -> dict[str, Any]:
-    hospital = next((item for item in hospitals if item["id"] == hospital_id), None)
-    if hospital is None:
-        raise HTTPException(status_code=404, detail="Hospital not found.")
-    hospital["available_beds"] = max(0, min(hospital["total_beds"], hospital["available_beds"] + change.delta))
+    async with allocation_lock:
+        hospital = next((item for item in hospitals if item["id"] == hospital_id), None)
+        if hospital is None:
+            raise HTTPException(status_code=404, detail="Hospital not found.")
+        hospital["available_beds"] = max(0, min(hospital["total_beds"], hospital["available_beds"] + change.delta))
+        hospital_copy = deepcopy(hospital)
+        updated_snapshot = snapshot()
     
     await broadcast_updates()
-    return {"hospital": deepcopy(hospital), "updated_hospitals": snapshot()}
+    return {"hospital": hospital_copy, "updated_hospitals": updated_snapshot}
 
 
 @app.post("/api/reset")
 async def reset_hospitals() -> list[dict[str, Any]]:
-    hospitals.clear()
-    hospitals.extend(deepcopy(DEFAULT_HOSPITALS))
+    async with allocation_lock:
+        hospitals.clear()
+        hospitals.extend(deepcopy(DEFAULT_HOSPITALS))
+        updated_snapshot = snapshot()
     await broadcast_updates()
-    return snapshot()
+    return updated_snapshot
 
 
 @app.post("/api/dispatch/parse")

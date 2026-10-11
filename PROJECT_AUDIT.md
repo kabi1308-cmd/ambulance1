@@ -226,16 +226,20 @@ graph TD
     P2 --> P3["P3: High-Value Capabilities<br/>- Active dispatch incident log & history<br/>- Multi-ambulance fleet management<br/>- Automated backend & frontend test suite"]
 ```
 
-### **Priority 0 (P0) — Critical Bugs & Broken Workflows**
-1. **Fix NLP Lat/Lng Regex Bug:**
+### **Priority 0 (P0) — Critical Bugs & Broken Workflows (STATUS: COMPLETED & VERIFIED)**
+1. **Fix NLP Lat/Lng Regex Bug (COMPLETED):**
    - File: `backend/ai/nlp_dispatch.py`
-   - Fix regex grouping for longitude: `r"(?:lng|lon(?:gitude)?)\s*[:=]?\s*(-?\d+(?:\.\d+)?)"`.
-2. **Fix React Error Rendering Crash:**
-   - Files: `frontend/src/components/AmbulanceSOS.jsx`, `frontend/src/App.jsx`
-   - Safely format Axios/FastAPI error details (handle strings, arrays, and dicts) before passing to React state.
-3. **Concurrency Safety & Atomic Bed Allocation:**
+   - Fixed regex grouping for latitude & longitude, avoided NoneType capture, added validation against [-90, 90] and [-180, 180], and safe fallback to keywords.
+   - Tested: 7 unit tests in `tests/test_nlp.py` passing.
+2. **Fix React Error Rendering Crash (COMPLETED):**
+   - Files: `frontend/src/utils/errorFormatter.js`, `frontend/src/components/AmbulanceSOS.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AIChatAssistant.jsx`
+   - Created `formatApiError()` utility that handles strings, FastAPI 422 detail arrays, network errors, timeouts, and unknown objects. Guaranteed to never return a non-string child.
+   - Tested: 6 integration tests in `tests/test_errorFormatter.js` passing.
+3. **Concurrency Safety & Atomic Bed Allocation (COMPLETED):**
    - File: `backend/main.py`
-   - Add `asyncio.Lock()` around allocation critical section to prevent race conditions.
+   - Added `allocation_lock = asyncio.Lock()` around candidate selection and bed decrement in `/api/allocate`, `update_beds`, and `reset_hospitals`.
+   - Verified that multiple simultaneous allocations when 1 bed remains result in exactly 1 reservation, 1 rejection, and 0 remaining beds (never negative).
+   - Tested: 5 async tests in `tests/test_p0.py` passing.
 
 ### **Priority 1 (P1) — Complete Existing Features & API Contracts**
 1. **Clinical Field SOS Inputs:**
