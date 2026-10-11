@@ -123,6 +123,12 @@ async def allocate(patient: PatientRequest) -> dict[str, Any]:
         if selected["available_beds"] <= 0:
             raise HTTPException(status_code=400, detail="CRITICAL EMERGENCY: No available ICU beds within service radius.")
 
+        req_spec = triage["specialty_required"]
+        specialty_match = False
+        if req_spec in selected.get("specialties", {}) and selected["specialties"][req_spec] > 0:
+            selected["specialties"][req_spec] -= 1
+            specialty_match = True
+
         selected["available_beds"] -= 1
 
         allocated_hospital_copy = deepcopy(selected)
@@ -131,14 +137,11 @@ async def allocate(patient: PatientRequest) -> dict[str, Any]:
     # Broadcast updated hospital state across WebSocket connections outside the critical lock section
     await broadcast_updates()
 
-    req_spec = triage["specialty_required"]
-    spec_avail = allocated_hospital_copy.get("specialties", {}).get(req_spec, 0)
-    specialty_match = spec_avail > 0
-
+    remaining_spec_beds = allocated_hospital_copy.get("specialties", {}).get(req_spec, 0)
     reason = (
         f"Optimal receiving facility selected based on patient severity level {triage['severity']} ({triage['triage_label']}), "
         f"proximity ({round(distance_km, 1)} km geodesic distance), bed capacity ({allocated_hospital_copy['available_beds']} beds open), "
-        f"and {'specialty match (' + req_spec + ' unit available)' if specialty_match else 'general emergency/ICU capacity'}."
+        f"and {'specialty match (' + req_spec + ' unit reserved, ' + str(remaining_spec_beds) + ' open)' if specialty_match else 'general emergency/ICU capacity (specialty unit unavailable)'}."
     )
 
     return {

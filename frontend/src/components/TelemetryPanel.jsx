@@ -1,4 +1,13 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 export default function TelemetryPanel({ hospitals }) {
   const chartData = hospitals.map((hospital) => ({
@@ -18,8 +27,8 @@ export default function TelemetryPanel({ hospitals }) {
         </div>
       </div>
       <div className="chart-wrap">
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={chartData} barGap={8}>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={chartData} barGap={6}>
             <CartesianGrid stroke="#1f3550" strokeDasharray="3 3" />
             <XAxis dataKey="name" stroke="#8aa7b6" tickLine={false} axisLine={false} />
             <YAxis stroke="#8aa7b6" tickLine={false} axisLine={false} />
@@ -28,11 +37,21 @@ export default function TelemetryPanel({ hospitals }) {
                 background: "#071c2b",
                 border: "1px solid #19425c",
                 color: "#dff5ff",
+                borderRadius: "4px",
+                fontSize: "12px",
               }}
             />
-            <Bar dataKey="available" fill="#34d399" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="oneHour" fill="#22d3ee" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="threeHour" fill="#fbbf24" radius={[4, 4, 0, 0]} />
+            <Legend
+              wrapperStyle={{
+                paddingTop: "10px",
+                fontSize: "11px",
+                color: "#8aa7b6",
+              }}
+            />
+            <Bar dataKey="available" name="Current Available" fill="#34d399" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="oneHour" name="1-Hour Projected" fill="#22d3ee" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="threeHour" name="3-Hour Projected" fill="#fbbf24" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="sixHour" name="6-Hour Projected" fill="#a78bfa" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

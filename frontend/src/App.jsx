@@ -25,6 +25,7 @@ export default function App() {
   const [updating, setUpdating] = useState(null);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState("");
+  const [wsStatus, setWsStatus] = useState("connecting");
 
   useEffect(() => {
     fetchHospitals()
@@ -36,25 +37,70 @@ export default function App() {
       .replace(/^http/, "ws")
       .replace(/\/api$/, "");
 
-    let socket;
-    try {
-      socket = new WebSocket(`${wsUrl}/ws`);
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "update" && Array.isArray(data.hospitals)) {
-            setHospitals(data.hospitals);
+    let socket = null;
+    let reconnectTimer = null;
+    let isUnmounted = false;
+    let reconnectDelay = 1000;
+    const maxDelay = 15000;
+
+    function connect() {
+      if (isUnmounted) return;
+      setWsStatus((prev) => (prev === "connected" ? "reconnecting" : "connecting"));
+
+      try {
+        socket = new WebSocket(`${wsUrl}/ws`);
+
+        socket.onopen = () => {
+          if (isUnmounted) {
+            socket.close();
+            return;
           }
-        } catch (e) {
-          // ignore parse error
-        }
-      };
-    } catch (e) {
-      // ignore connection error
+          setWsStatus("connected");
+          reconnectDelay = 1000;
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "update" && Array.isArray(data.hospitals)) {
+              setHospitals(data.hospitals);
+            }
+          } catch (e) {
+            // ignore parse error
+          }
+        };
+
+        socket.onerror = () => {
+          // Socket will fire onclose immediately
+        };
+
+        socket.onclose = () => {
+          if (isUnmounted) return;
+          setWsStatus("disconnected");
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 1.5, maxDelay);
+            connect();
+          }, reconnectDelay);
+        };
+      } catch (err) {
+        if (isUnmounted) return;
+        setWsStatus("disconnected");
+        reconnectTimer = setTimeout(() => {
+          reconnectDelay = Math.min(reconnectDelay * 1.5, maxDelay);
+          connect();
+        }, reconnectDelay);
+      }
     }
 
+    connect();
+
     return () => {
-      if (socket) socket.close();
+      isUnmounted = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+      }
     };
   }, []);
 
@@ -100,6 +146,7 @@ export default function App() {
         hospitals={hospitals}
         onReset={reset}
         resetting={resetting}
+        wsStatus={wsStatus}
       />
       {error && (
         <button className="global-error" onClick={() => setError("")}>

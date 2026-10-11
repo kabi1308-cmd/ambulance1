@@ -241,24 +241,25 @@ graph TD
    - Verified that multiple simultaneous allocations when 1 bed remains result in exactly 1 reservation, 1 rejection, and 0 remaining beds (never negative).
    - Tested: 5 async tests in `tests/test_p0.py` passing.
 
-### **Priority 1 (P1) — Complete Existing Features & API Contracts**
-1. **Clinical Field SOS Inputs:**
+### **Priority 1 (P1) — Complete Existing Features & API Contracts (STATUS: COMPLETED & VERIFIED)**
+1. **Clinical Field SOS Inputs (COMPLETED):**
    - Files: `frontend/src/components/AmbulanceSOS.jsx`, `frontend/src/api.js`
-   - Add vitals inputs (SpO2, Pulse, Blood Pressure) and symptom checkboxes/selector.
-   - Update `triggerSOS()` to send full clinical payload to `/api/allocate`.
-2. **Specialty Bed Inventory Tracking:**
+   - Added symptoms input, clinical scenario presets (Cath Lab, Stroke, Burn, Trauma, Cardiac), field severity slider (1-5), optional vital signs inputs (Pulse bpm, Systolic BP mmHg, SpO2 %, Temp °C), physiological validation, and prototype disclaimer banner.
+   - Preserved existing location presets and GPS detection.
+2. **Specialty Bed Inventory Tracking (COMPLETED):**
    - File: `backend/main.py`
-   - Decrement `hospital["specialties"][required_specialty]` when matched and allocated.
-3. **WebSocket Resilience & Status Indicator:**
+   - Decrements matched specialized bed counts in `selected["specialties"][req_spec]` upon allocation without negative counts; leaves count intact if 0 or on allocation failure.
+   - Tested: 4 tests in `tests/test_p1_specialty.py` passing.
+3. **WebSocket Resilience & Status Indicator (COMPLETED):**
    - Files: `frontend/src/App.jsx`, `frontend/src/components/Navbar.jsx`
-   - Implement auto-reconnection loop with exponential backoff.
-   - Show true connection state (Connected, Reconnecting, Offline) in Navbar.
-4. **Telemetry Panel Completion:**
-   - File: `frontend/src/components/TelemetryPanel.jsx`
-   - Add 6-hour projection bar and Recharts `<Legend />`.
-5. **Speech Recognition in AI Assistant:**
+   - Implemented exponential backoff reconnection loop (1s to 15s max) with cleanup on unmount; passed `wsStatus` to Navbar to render live ACTIVE / SYNCING / OFFLINE feed status.
+4. **Telemetry Panel Completion (COMPLETED):**
+   - Files: `frontend/src/components/TelemetryPanel.jsx`, `frontend/src/index.css`
+   - Added 6-hour projection bar (`#a78bfa`) and Recharts `<Legend />` with clear series names.
+5. **Speech Recognition in AI Assistant (COMPLETED):**
    - File: `frontend/src/components/AIChatAssistant.jsx`
-   - Hook up Web Speech API (`webkitSpeechRecognition`) to the Voice Capture button.
+   - Implemented browser Web Speech API speech input with feature detection, microphone permission handling, audio activity indicators, and typed fallback.
+
 
 ### **Priority 2 (P2) — Premium UI/UX & Command Center Polish**
 1. **Cinematic Emergency Command Center Aesthetic:**

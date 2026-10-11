@@ -68,7 +68,7 @@ h2 { font-size: 24px; }
 .forecast-grid small { display: block; color: #7a8f9e; font-size: 8px; }
 .forecast-grid strong { display: block; margin-top: 5px; color: #e1f3ff; font-size: 16px; }
 .card-panel, .telemetry-panel, .ai-assistant { background: rgba(12, 28, 43, 0.82); border: 1px solid #1d3d50; padding: 24px; margin: 0 auto 20px; max-width: 1400px; }
-.chart-wrap { height: 240px; }
+.chart-wrap { height: 280px; }
 .ai-assistant { max-width: 1400px; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; }
 .ai-badge { display: inline-flex; gap: 5px; align-items: center; padding: 6px 10px; color: #7dd3fc; border: 1px solid #0ea5e9; background: rgba(14,165,233,.1); font-size: 9px; }

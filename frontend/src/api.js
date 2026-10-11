@@ -8,11 +8,20 @@ const api = axios.create({
 export const fetchHospitals = async () => (await api.get("/hospitals")).data;
 export const updateHospitalBeds = async (id, delta) =>
   (await api.post(`/hospitals/${id}/beds`, { delta })).data;
-export const triggerSOS = async (lat, lng) =>
+export const triggerSOS = async (
+  lat,
+  lng,
+  symptoms = "",
+  severity = 3,
+  vitals = {}
+) =>
   (
     await api.post("/allocate", {
       ambulance_lat: Number(lat),
       ambulance_lng: Number(lng),
+      symptoms: String(symptoms || "").trim(),
+      severity: Number(severity) || 3,
+      vitals: vitals || {},
     })
   ).data;
 export const resetHospitals = async () => (await api.post("/reset")).data;
