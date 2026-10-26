@@ -11,7 +11,7 @@ SPECIALTY_RULES = {
     "Trauma": ["accident", "fracture", "bleeding", "multi trauma", "vehicle crash"],
 }
 
-SPECIALTY_ORDER = ["ICU", "Cath Lab", "Burn Unit", "Neuro ICU", "Trauma"]
+SPECIALTY_ORDER = ["Neuro ICU", "Cath Lab", "Burn Unit", "Trauma", "ICU"]
 
 
 def normalize_text(value: str) -> str:

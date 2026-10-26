@@ -22,10 +22,10 @@ export default function AllocationDecision({ allocation }) {
       <div className="card-top">
         <div className="section-label">
           <ShieldCheck size={16} className="text-cyan" />
-          <span>ALLOCATION DECISION LOG</span>
+          <span>ALLOCATION DECISION RATIONALE</span>
         </div>
         <span className={`severity-badge severity-${severityLevel}`}>
-          SEVERITY {severityLevel} / {triageLabel.toUpperCase()}
+          SEVERITY {severityLevel} // {triageLabel.toUpperCase()}
         </span>
       </div>
 
@@ -33,7 +33,9 @@ export default function AllocationDecision({ allocation }) {
         <h2>{allocated_hospital?.name}</h2>
         <p className="coordinates">
           <MapPin size={13} />
-          {allocated_hospital?.lat?.toFixed(5)} / {allocated_hospital?.lng?.toFixed(5)}
+          <span>
+            {allocated_hospital?.lat?.toFixed(5)}°N, {allocated_hospital?.lng?.toFixed(5)}°E
+          </span>
         </p>
       </div>
 
@@ -49,24 +51,24 @@ export default function AllocationDecision({ allocation }) {
         </div>
 
         <div className="decision-item">
-          <span className="label">ESTIMATED ETA</span>
+          <span className="label">BASELINE 30 KM/H ETA</span>
           <strong className="value highlight">{estimated_time_mins} min</strong>
         </div>
 
         <div className="decision-item">
-          <span className="label">SPECIALTY MATCH</span>
+          <span className="label">SPECIALTY UNIT RESERVED</span>
           <div className={`specialty-pill ${specialty_match ? "matched" : "unmatched"}`}>
             {specialty_match ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-            <span>{specialtyRequired} ({specialty_match ? "YES" : "GENERAL"})</span>
+            <span>{specialtyRequired} ({specialty_match ? "RESERVED" : "GENERAL ICU"})</span>
           </div>
         </div>
       </div>
 
       <div className="decision-reason-box">
-        <span className="reason-title">SELECTION RATIONALE</span>
+        <span className="reason-title">ALGORITHMIC SELECTION RATIONALE</span>
         <p className="reason-text">
           {allocation_reason ||
-            `Best available hospital calculated based on severity score (${severityLevel}), proximity (${distance_km} km), bed capacity (${allocated_hospital?.available_beds} beds open), and specialty compatibility.`}
+            `Optimal receiving facility calculated based on severity score (${severityLevel}), proximity (${distance_km} km), bed capacity (${allocated_hospital?.available_beds} beds open), and specialty compatibility.`}
         </p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import {
@@ -8,10 +8,14 @@ import {
   AlertTriangle,
   Info,
   LocateFixed,
+  Radio,
+  Layers,
+  MapPin,
 } from "lucide-react";
 
 import { createHospitalIcon, createAmbulanceIcon } from "../utils/leafletIcons";
 import { fetchOsrmRoute } from "../utils/osrm";
+import { playTacticalClick } from "../utils/audioAlerts";
 
 import AmbulanceTracker from "./AmbulanceTracker";
 import AllocationDecision from "./AllocationDecision";
@@ -47,11 +51,13 @@ function MapController({ centerCommand, boundsCommand }) {
 }
 
 export default function CommandCenterMap({
-  hospitals,
+  hospitals = [],
   ambulanceCoords,
-  lastAllocation,
+  lastAllocation = null,
   onCoordsChange,
 }) {
+  const safeHospitals = Array.isArray(hospitals) ? hospitals : [];
+
   // Route & Simulation State
   const [routeCoords, setRouteCoords] = useState([]); // Array of [lat, lng]
   const [routeInfo, setRouteInfo] = useState(null);
@@ -71,6 +77,7 @@ export default function CommandCenterMap({
   // GPS / Location State
   const [geoLocating, setGeoLocating] = useState(false);
   const [geoError, setGeoError] = useState("");
+  const [isHardwareGps, setIsHardwareGps] = useState(false);
 
   // Sync ambulance position if external props change while not actively simulating
   useEffect(() => {
@@ -169,6 +176,7 @@ export default function CommandCenterMap({
 
   // Handler: Simulation Controls
   const toggleSimulation = () => {
+    playTacticalClick();
     if (dispatchStatus === "ARRIVED") {
       setAnimIndex(0);
       setDispatchStatus("EN ROUTE");
@@ -185,6 +193,7 @@ export default function CommandCenterMap({
   };
 
   const resetSimulation = () => {
+    playTacticalClick();
     setAnimIndex(0);
     if (routeCoords.length > 0) {
       setCurrentAmbulancePos({
@@ -198,6 +207,7 @@ export default function CommandCenterMap({
 
   // Map Controls
   const recenterAmbulance = () => {
+    playTacticalClick();
     if (currentAmbulancePos) {
       setCenterCommand({
         lat: currentAmbulancePos.lat,
@@ -209,12 +219,14 @@ export default function CommandCenterMap({
   };
 
   const fitRoute = () => {
+    playTacticalClick();
     if (routeCoords.length > 0) {
       setBoundsCommand([...routeCoords]);
     }
   };
 
   const handleUseCurrentLocation = () => {
+    playTacticalClick();
     setGeoError("");
     if (!navigator.geolocation) {
       setGeoError("Browser geolocation is not supported on this browser.");
@@ -227,6 +239,7 @@ export default function CommandCenterMap({
           lat: Number(pos.coords.latitude.toFixed(4)),
           lng: Number(pos.coords.longitude.toFixed(4)),
         };
+        setIsHardwareGps(true);
         onCoordsChange(coords);
         setCurrentAmbulancePos(coords);
         setCenterCommand({ ...coords, zoom: 13, id: Date.now() });
@@ -234,6 +247,7 @@ export default function CommandCenterMap({
       },
       (err) => {
         setGeoLocating(false);
+        setIsHardwareGps(false);
         setGeoError(
           "Location access denied or unavailable. Manual coordinates active."
         );
@@ -242,30 +256,47 @@ export default function CommandCenterMap({
     );
   };
 
-  const mapCenter = [currentAmbulancePos.lat || 11.1271, currentAmbulancePos.lng || 78.6569];
+  const mapCenter = [currentAmbulancePos?.lat || 11.1271, currentAmbulancePos?.lng || 78.6569];
 
   return (
-    <section className="view map-view google-command-center">
+    <section className="view map-view command-center-view">
       {/* View Section Heading */}
       <div className="section-heading map-heading">
         <div>
-          <p className="eyebrow">GEOSPATIAL DISPATCH COMMAND / REACT-LEAFLET ENGINE</p>
+          <p className="eyebrow">GEOSPATIAL DISPATCH COMMAND // REACT-LEAFLET + OSRM ENGINE</p>
           <h1>Emergency Routing Command Center</h1>
+          <p className="muted">
+            Live tactical map plotting regional hospital receiving units, OSRM road routes, and simulated en-route telemetry.
+          </p>
         </div>
         <div className={`map-status ${lastAllocation ? "dispatching" : ""}`}>
-          <span className="signal-dot" />{" "}
-          {lastAllocation ? `ACTIVE DISPATCH / ${dispatchStatus}` : "AWAITING EMERGENCY SIGNAL"}
+          <span className="signal-dot" />
+          {lastAllocation ? `ACTIVE DISPATCH // ${dispatchStatus}` : "AWAITING EMERGENCY SIGNAL"}
         </div>
       </div>
 
       {geoError && (
-        <div className="geo-error-banner">
-          <Info size={14} /> {geoError}
+        <div className="geo-error-banner" role="alert">
+          <Info size={14} /> <span>{geoError}</span>
         </div>
       )}
 
       {/* Main Map & Command Controls Shell */}
-      <div className="map-shell google-map-shell">
+      <div className="map-shell command-map-shell">
+        {/* Tactical Header Overlay Bar */}
+        <div className="map-tactical-header">
+          <div className="map-telemetry-tag">
+            <Radio size={12} className="pulse-icon" />
+            <span>REACT-LEAFLET // OSM ROAD ROUTER</span>
+          </div>
+          <div className="map-coords-readout">
+            <span>POS: {currentAmbulancePos?.lat?.toFixed(4)}°N, {currentAmbulancePos?.lng?.toFixed(4)}°E</span>
+            <span className={`gps-badge ${isHardwareGps ? "hardware" : "simulated"}`}>
+              {isHardwareGps ? "HARDWARE GPS FIXED" : "SIMULATED TELEMETRY"}
+            </span>
+          </div>
+        </div>
+
         <MapContainer
           center={mapCenter}
           zoom={8}
@@ -284,15 +315,14 @@ export default function CommandCenterMap({
           />
 
           {/* Render Hospital Markers */}
-          {hospitals.map((h) => {
-            const isSelected =
-              lastAllocation?.allocated_hospital?.id === h.id;
+          {safeHospitals.map((h) => {
+            const isSelected = lastAllocation?.allocated_hospital?.id === h.id;
 
-            let color = "#34d399"; // Available
-            if (h.available_beds === 0) color = "#fb7185"; // Full
+            let color = "#10b981"; // Available
+            if (h.available_beds === 0) color = "#f43f5e"; // Full
             else if (h.available_beds <= 3) color = "#f59e0b"; // Low beds
 
-            if (isSelected) color = "#22d3ee"; // Selected hospital highlight
+            if (isSelected) color = "#00d2f0"; // Selected hospital highlight
 
             const icon = createHospitalIcon(color, h.available_beds, isSelected);
 
@@ -303,17 +333,32 @@ export default function CommandCenterMap({
                 icon={icon}
                 zIndexOffset={isSelected ? 500 : 100}
               >
-                <Popup>
-                  <div style={{ color: "#07111f", padding: "4px", fontFamily: "sans-serif" }}>
-                    <strong style={{ fontSize: "13px" }}>{h.name}</strong>
-                    <br />
-                    <span style={{ fontSize: "12px" }}>
-                      Available Beds: <b>{h.available_beds}</b> / {h.total_beds}
-                    </span>
-                    <br />
-                    <span style={{ fontSize: "11px", color: "#555" }}>
-                      Lat: {h.lat} | Lng: {h.lng}
-                    </span>
+                <Popup className="tactical-leaflet-popup">
+                  <div className="tactical-popup-content">
+                    <div className="popup-header">
+                      <span className="popup-id">{h.id.toUpperCase()}</span>
+                      <span className={`popup-cap ${h.available_beds === 0 ? "cap-red" : h.available_beds <= 3 ? "cap-amber" : "cap-green"}`}>
+                        {h.available_beds} / {h.total_beds} BEDS
+                      </span>
+                    </div>
+                    <strong className="popup-name">{h.name}</strong>
+                    <div className="popup-coords">
+                      <MapPin size={11} /> {h.lat.toFixed(4)}°N, {h.lng.toFixed(4)}°E
+                    </div>
+                    {h.specialties && (
+                      <div className="popup-specialties">
+                        {Object.entries(h.specialties).map(([k, v]) => (
+                          <span key={k} className="popup-spec-tag">
+                            {k}: <b>{v}</b>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {isSelected && (
+                      <div className="popup-selected-tag">
+                        ★ TARGET ALLOCATED FACILITY
+                      </div>
+                    )}
                   </div>
                 </Popup>
               </Marker>
@@ -327,13 +372,19 @@ export default function CommandCenterMap({
               icon={createAmbulanceIcon(heading)}
               zIndexOffset={1000}
             >
-              <Popup>
-                <div style={{ color: "#07111f", padding: "4px", fontFamily: "sans-serif" }}>
-                  <strong>Ambulance AMB-07</strong>
-                  <br />
-                  <span>
+              <Popup className="tactical-leaflet-popup">
+                <div className="tactical-popup-content">
+                  <div className="popup-header">
+                    <span className="popup-id">CALLSIGN: AMB-07</span>
+                    <span className="popup-cap cap-cyan">DISPATCH UNIT</span>
+                  </div>
+                  <strong className="popup-name">Advanced Life Support Unit</strong>
+                  <div className="popup-coords">
                     Lat: {currentAmbulancePos.lat.toFixed(5)} | Lng: {currentAmbulancePos.lng.toFixed(5)}
-                  </span>
+                  </div>
+                  <div className="popup-status-note">
+                    Heading: {Math.round(heading)}° | Status: {dispatchStatus}
+                  </div>
                 </div>
               </Popup>
             </Marker>
@@ -344,7 +395,7 @@ export default function CommandCenterMap({
             <Polyline
               positions={routeCoords}
               pathOptions={{
-                color: routeInfo?.isOsrmRoute ? "#06b6d4" : "#f59e0b",
+                color: routeInfo?.isOsrmRoute ? "#00d2f0" : "#f59e0b",
                 weight: 5,
                 opacity: 0.9,
                 dashArray: routeInfo?.isOsrmRoute ? null : "8, 8",
@@ -356,29 +407,38 @@ export default function CommandCenterMap({
         {/* Map Command Action Toolbar */}
         <div className="map-toolbar">
           <button
+            type="button"
             onClick={recenterAmbulance}
             className="toolbar-btn"
-            title="Recenter Ambulance"
+            title="Recenter Camera on Ambulance Unit"
           >
-            <Crosshair size={14} /> Recenter Unit
+            <Crosshair size={14} />
+            <span>Recenter Unit</span>
           </button>
           {routeCoords.length > 0 && (
-            <button onClick={fitRoute} className="toolbar-btn" title="Fit Route Bounds">
-              <Maximize2 size={14} /> Fit Route
+            <button
+              type="button"
+              onClick={fitRoute}
+              className="toolbar-btn"
+              title="Fit Map Bounds to Entire Route"
+            >
+              <Maximize2 size={14} />
+              <span>Fit Route Bounds</span>
             </button>
           )}
           <button
+            type="button"
             onClick={handleUseCurrentLocation}
             className="toolbar-btn locate-btn"
             disabled={geoLocating}
-            title="Use Browser GPS Location"
+            title="Query Browser Geolocation API"
           >
-            <LocateFixed size={14} />{" "}
-            {geoLocating ? "Acquiring GPS..." : "Use Current Location"}
+            <LocateFixed size={14} />
+            <span>{geoLocating ? "Acquiring GPS..." : "Acquire GPS Fix"}</span>
           </button>
         </div>
 
-        {/* Legend Indicator */}
+        {/* High-Contrast Legend Indicator */}
         <div className="map-legend">
           <span>
             <i className="legend-dot green" /> Available (&gt;3 beds)
@@ -390,7 +450,16 @@ export default function CommandCenterMap({
             <i className="legend-dot red" /> Full (0 beds)
           </span>
           <span>
-            <i className="legend-dot blue" /> Ambulance Unit
+            <i className="legend-dot cyan" /> Allocated Hospital
+          </span>
+          <span>
+            <i className="legend-dot blue" /> Ambulance AMB-07
+          </span>
+          <span>
+            <i className="legend-line solid" /> OSRM Road Route
+          </span>
+          <span>
+            <i className="legend-line dashed" /> Geodesic Fallback
           </span>
         </div>
       </div>
@@ -419,6 +488,8 @@ export default function CommandCenterMap({
             destinationName={lastAllocation.allocated_hospital?.name}
             isOsrmRoute={routeInfo?.isOsrmRoute}
             status={dispatchStatus}
+            geodesicKm={lastAllocation.distance_km}
+            geodesicMins={lastAllocation.estimated_time_mins}
           />
 
           {/* Allocation Decision Rationale Card */}

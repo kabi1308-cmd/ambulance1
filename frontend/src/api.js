@@ -27,3 +27,9 @@ export const triggerSOS = async (
 export const resetHospitals = async () => (await api.post("/reset")).data;
 export const parseDispatchText = async (text) =>
   (await api.post("/dispatch/parse", { text })).data;
+export const updateSpecialtyBeds = async (id, specialty, delta) =>
+  (await api.post(`/hospitals/${id}/specialties`, { specialty, delta })).data;
+export const fetchIncidents = async (limit = 50) =>
+  (await api.get(`/incidents?limit=${limit}`)).data;
+export const updateIncidentStatus = async (id, status) =>
+  (await api.post(`/incidents/${id}/status`, { status })).data;

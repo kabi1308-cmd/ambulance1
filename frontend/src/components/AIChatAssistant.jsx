@@ -1,7 +1,28 @@
 import { useState, useRef, useEffect } from "react";
-import { Mic, MicOff, Send, Sparkles, Volume2 } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Send,
+  Sparkles,
+  Volume2,
+  MapPin,
+  Stethoscope,
+  ShieldCheck,
+  Building2,
+  Navigation,
+  AlertCircle,
+  Radio,
+} from "lucide-react";
 import { parseDispatchText } from "../api";
 import { formatApiError } from "../utils/errorFormatter";
+import { playDispatchAlert, playTacticalClick } from "../utils/audioAlerts";
+
+const samplePrompts = [
+  "54yo male with acute crushing chest pain near Guindy, Chennai",
+  "62yo female with sudden facial drooping and slurred speech near Gandhipuram, Coimbatore",
+  "30yo worker with 40% thermal burns near KK Nagar, Madurai",
+  "High-speed motorcycle collision with open femur fracture near Thillai Nagar, Trichy",
+];
 
 export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
   const [input, setInput] = useState("45yo male experiencing acute chest pain near Guindy, Chennai");
@@ -9,6 +30,7 @@ export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
   const [result, setResult] = useState(null);
   const [isListening, setIsListening] = useState(false);
   const [voiceNotice, setVoiceNotice] = useState("");
+  const [history, setHistory] = useState([]);
 
   const recognitionRef = useRef(null);
 
@@ -25,6 +47,7 @@ export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
   }, []);
 
   const toggleVoiceCapture = () => {
+    playTacticalClick();
     setVoiceNotice("");
 
     // If currently listening, stop it
@@ -46,7 +69,7 @@ export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
 
     if (!SpeechRecognition) {
       setVoiceNotice(
-        "Browser Web Speech API is not supported in this browser. Please use keyboard text input."
+        "Browser Web Speech API is not supported in this environment. Please enter emergency details via keyboard."
       );
       return;
     }
@@ -59,23 +82,23 @@ export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
 
       recognition.onstart = () => {
         setIsListening(true);
-        setVoiceNotice("Listening... Speak emergency details now (location, vitals, symptoms).");
+        setVoiceNotice("Listening... Speak emergency details clearly (location, vitals, symptoms).");
       };
 
       recognition.onresult = (event) => {
         if (event.results && event.results[0] && event.results[0][0]) {
           const transcript = event.results[0][0].transcript;
           setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
-          setVoiceNotice(`Captured: "${transcript}"`);
+          setVoiceNotice(`Speech captured: "${transcript}"`);
         }
       };
 
       recognition.onerror = (event) => {
         setIsListening(false);
         if (event.error === "not-allowed" || event.error === "permission-denied") {
-          setVoiceNotice("Microphone permission denied. Please allow microphone access in your browser settings.");
+          setVoiceNotice("Microphone permission denied. Enable microphone access in browser settings.");
         } else if (event.error === "no-speech") {
-          setVoiceNotice("No speech detected. Press Voice Capture and speak clearly.");
+          setVoiceNotice("No speech detected. Click Voice Capture again and speak into microphone.");
         } else {
           setVoiceNotice(`Speech recognition notice: ${event.error}. You can also type directly.`);
         }
@@ -93,85 +116,226 @@ export default function AIChatAssistant({ onParsedDispatch, onViewMap }) {
     }
   };
 
+  const handleApplyPrompt = (promptText) => {
+    playTacticalClick();
+    setInput(promptText);
+  };
+
   const submit = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || busy) return;
     setBusy(true);
+    setVoiceNotice("");
+
+    const userText = input.trim();
+
     try {
-      const response = await parseDispatchText(input);
+      const response = await parseDispatchText(userText);
+      playDispatchAlert();
       setResult(response);
+
+      // Add to conversation history
+      setHistory((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          input: userText,
+          response: response,
+          timestamp: new Date().toLocaleTimeString("en-GB", { hour12: false }),
+        },
+      ]);
+
       onParsedDispatch(response.dispatch, {
         lat: response.extracted.lat,
         lng: response.extracted.lng,
       });
-      onViewMap();
     } catch (error) {
-      setResult({ error: formatApiError(error, "AI parser unavailable. Please retry.") });
+      setResult({
+        error: formatApiError(error, "AI dispatch parser unavailable. Verify backend is running."),
+      });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="ai-assistant card-panel">
-      <div className="panel-header">
+    <div className="view chat-view">
+      <div className="section-heading">
         <div>
-          <p className="eyebrow">AI DISPATCH ASSISTANT / NLP</p>
-          <h2>Voice & Text Triage Intake</h2>
+          <p className="eyebrow">AI DISPATCH ASSISTANT // NATURAL LANGUAGE INTAKE</p>
+          <h1>Voice & Text Triage Intake Console</h1>
+          <p className="muted">
+            Transcribes radio dispatcher voice transcripts and text calls. Extracts geospatial location, clinical keywords, and triggers automated ICU bed reservation.
+          </p>
         </div>
-        <div className="ai-badge"><Sparkles size={14} /> AI READY</div>
+        <div className="ai-badge">
+          <Sparkles size={14} /> NLP EXTRACTION ENGINE // READY
+        </div>
       </div>
-      <div className="chat-box">
-        <textarea
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          rows={5}
-          placeholder="Describe emergency call details (e.g. location, symptoms, urgency)..."
-        />
 
-        {voiceNotice && (
-          <div style={{
-            fontSize: "11px",
-            color: isListening ? "#38bdf8" : "#94a3b8",
-            padding: "8px 12px",
-            background: "rgba(15, 34, 48, 0.7)",
-            border: "1px solid #1f3550",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}>
-            <Volume2 size={14} style={{ flexShrink: 0 }} />
-            <span>{voiceNotice}</span>
+      <div className="chat-layout">
+        {/* Left Column: Intake & Dispatch Controls */}
+        <div className="chat-intake-card card-panel">
+          <div className="panel-subhead">
+            <span className="panel-title">DISPATCH TRANSCRIPT INPUT</span>
+            <span className="mono-sub">VOICE / KEYBOARD INTENT PARSER</span>
           </div>
-        )}
 
-        <div className="chat-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={toggleVoiceCapture}
-            style={{
-              borderColor: isListening ? "#ef4444" : undefined,
-              color: isListening ? "#fca5a5" : undefined,
-              background: isListening ? "rgba(239, 68, 68, 0.15)" : undefined,
-            }}
-          >
-            {isListening ? <MicOff size={14} /> : <Mic size={14} />}
-            {isListening ? "Listening... (Click to Stop)" : "Voice Capture"}
-          </button>
-          <button className="primary-button" onClick={submit} disabled={busy}>
-            <Send size={14} /> {busy ? "Processing..." : "Send to AI Dispatch"}
-          </button>
+          {/* Quick Prompt Presets */}
+          <div className="preset-label">EXAMPLE EMERGENCY CALL PROMPTS</div>
+          <div className="prompt-chips">
+            {samplePrompts.map((prompt, idx) => (
+              <button
+                key={idx}
+                type="button"
+                className="prompt-chip"
+                onClick={() => handleApplyPrompt(prompt)}
+              >
+                "{prompt}"
+              </button>
+            ))}
+          </div>
+
+          {/* Textarea Input */}
+          <div className="chat-input-wrap">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              rows={4}
+              placeholder="Enter or dictate emergency call transcription (e.g. location, vitals, symptoms, urgency)..."
+              disabled={busy}
+            />
+
+            {/* Voice Recording Banner */}
+            {voiceNotice && (
+              <div
+                className={`voice-notice-banner ${isListening ? "active-mic" : ""}`}
+                role="status"
+              >
+                <Volume2 size={15} className={isListening ? "pulse-icon" : ""} />
+                <span>{voiceNotice}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="chat-actions">
+              <button
+                type="button"
+                className={`ghost-button voice-btn ${isListening ? "listening" : ""}`}
+                onClick={toggleVoiceCapture}
+                title={isListening ? "Stop Voice Recording" : "Start Voice Transcription"}
+              >
+                {isListening ? (
+                  <>
+                    <MicOff size={15} />
+                    <span>STOP RECORDING</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={15} />
+                    <span>VOICE CAPTURE</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="primary-button dispatch-btn"
+                onClick={submit}
+                disabled={busy || !input.trim()}
+              >
+                <Send size={15} className={busy ? "spin" : ""} />
+                <span>{busy ? "PARSING & ALLOCATING..." : "ANALYZE & ALLOCATE ICU"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Parsed AI Triage Result */}
+        <div className="chat-result-card card-panel">
+          <div className="panel-subhead">
+            <span className="panel-title">AI CLINICAL EXTRACTION & ALLOCATION</span>
+            <span className="mono-sub">STAGE P1 CONTRACT VERIFIED</span>
+          </div>
+
+          {result && !result.error ? (
+            <div className="ai-result-display">
+              <div className="result-header-row">
+                <span className="result-badge success">
+                  <ShieldCheck size={13} />
+                  INTENT PARSED & ALLOCATED
+                </span>
+                <span className="mono-sub">NLP ENGINE: REGEX + TRIAGE RULES</span>
+              </div>
+
+              {/* Extracted Entities Grid */}
+              <div className="entity-grid">
+                <div className="entity-item">
+                  <span className="entity-label">EXTRACTED LOCATION</span>
+                  <strong className="entity-val">
+                    <MapPin size={12} className="text-cyan" />
+                    {result.extracted?.lat.toFixed(4)}°N, {result.extracted?.lng.toFixed(4)}°E
+                  </strong>
+                </div>
+
+                <div className="entity-item">
+                  <span className="entity-label">CLINICAL URGENCY</span>
+                  <strong className="entity-val text-amber">
+                    SEVERITY {result.extracted?.urgency} // {result.triage?.triage_label?.toUpperCase()}
+                  </strong>
+                </div>
+
+                <div className="entity-item">
+                  <span className="entity-label">REQUIRED SPECIALTY</span>
+                  <strong className="entity-val text-cyan">
+                    <Stethoscope size={12} className="text-cyan" />
+                    {result.extracted?.specialty || "General ICU"}
+                  </strong>
+                </div>
+
+                <div className="entity-item">
+                  <span className="entity-label">ALLOCATED FACILITY</span>
+                  <strong className="entity-val text-emerald">
+                    <Building2 size={12} className="text-emerald" />
+                    {result.dispatch?.allocated_hospital?.name || "Assigned Facility"}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Selection Rationale */}
+              <div className="result-reasoning-box">
+                <span className="reasoning-title">ALLOCATION RATIONALE</span>
+                <p>{result.dispatch?.allocation_reason}</p>
+              </div>
+
+              {/* View Map Action */}
+              <button
+                type="button"
+                className="view-route-btn"
+                onClick={onViewMap}
+              >
+                <Navigation size={14} />
+                <span>TRACK MISSION ON COMMAND MAP →</span>
+              </button>
+            </div>
+          ) : result?.error ? (
+            <div className="ai-error-box" role="alert">
+              <AlertCircle size={20} className="text-rose" />
+              <div>
+                <strong>DISPATCH INTAKE ERROR</strong>
+                <p>{result.error}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="ai-standby-placeholder">
+              <Radio size={24} className="text-muted" />
+              <strong>AWAITING DISPATCH CALL TRANSCRIPTION</strong>
+              <p>
+                Type or speak an emergency situation. The AI assistant will parse patient symptoms, infer required department capacity, and automatically book the fastest viable ICU bed.
+              </p>
+            </div>
+          )}
         </div>
       </div>
-      {result && !result.error && (
-        <div className="ai-result">
-          <p><strong>Extracted intent:</strong> {result.extracted.raw_text}</p>
-          <p><strong>Urgency:</strong> {result.triage.triage_label} / {result.extracted.urgency}</p>
-          <p><strong>Specialty:</strong> {result.extracted.specialty}</p>
-          <p><strong>Selected Hospital:</strong> {result.dispatch.allocated_hospital.name}</p>
-        </div>
-      )}
-      {result?.error && <p className="error-message">{result.error}</p>}
     </div>
   );
 }

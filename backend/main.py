@@ -29,7 +29,28 @@ DEFAULT_HOSPITALS: list[dict[str, Any]] = [
     {"id": "hosp-3", "name": "Madurai Apex Trauma Institute", "lat": 9.9252, "lng": 78.1198, "total_beds": 10, "available_beds": 0, "specialties": {"ICU": 3, "Cath Lab": 1, "Burn Unit": 2, "Neuro ICU": 1, "Trauma": 5}},
     {"id": "hosp-4", "name": "Trichy Community Hospital", "lat": 10.7905, "lng": 78.7047, "total_beds": 25, "available_beds": 8, "specialties": {"ICU": 5, "Cath Lab": 3, "Burn Unit": 1, "Neuro ICU": 2, "Trauma": 3}},
 ]
-hospitals = deepcopy(DEFAULT_HOSPITALS)
+
+# Initialize SQLite persistence with graceful fallback
+try:
+    from database import (
+        init_db,
+        load_hospitals,
+        save_hospital,
+        reset_hospitals_db,
+        log_incident,
+        get_incidents,
+        update_incident_status,
+    )
+    init_db(DEFAULT_HOSPITALS)
+    db_hospitals = load_hospitals()
+    if db_hospitals and len(db_hospitals) == len(DEFAULT_HOSPITALS):
+        hospitals = db_hospitals
+    else:
+        hospitals = deepcopy(DEFAULT_HOSPITALS)
+    HAS_DB = True
+except Exception:
+    HAS_DB = False
+    hospitals = deepcopy(DEFAULT_HOSPITALS)
 
 # In-memory synchronization lock for single-process async concurrency.
 # NOTE & ARCHITECTURAL LIMITATION:
@@ -75,7 +96,8 @@ async def broadcast_updates():
         try:
             await client.send_text(payload)
         except Exception:
-            connected_clients.remove(client)
+            if client in connected_clients:
+                connected_clients.remove(client)
 
 
 def score_hospital(hospital: dict[str, Any], patient: PatientRequest, triage: dict[str, Any]) -> tuple[float, float, float, float]:
@@ -89,6 +111,12 @@ def score_hospital(hospital: dict[str, Any], patient: PatientRequest, triage: di
     severity_weight = 6.0 - triage["severity"]
     score = (estimated_time_mins * 0.45) + (capacity_penalty * 0.2) + (specialty_penalty * 0.75) + (10.0 / max(hospital["available_beds"], 1)) * severity_weight + (distance_km * 0.15) / availability_boost
     return score, distance_km, estimated_time_mins, specialty_capacity
+
+
+@app.get("/api/health")
+@app.get("/health")
+def health_check() -> dict[str, Any]:
+    return {"status": "ok", "service": "Crisis-Grid API", "version": "2.0.0", "persistence": HAS_DB}
 
 
 @app.get("/api/hospitals")
@@ -131,8 +159,35 @@ async def allocate(patient: PatientRequest) -> dict[str, Any]:
 
         selected["available_beds"] -= 1
 
+        if HAS_DB:
+            try:
+                save_hospital(selected)
+            except Exception:
+                pass
+
         allocated_hospital_copy = deepcopy(selected)
         updated_hospitals_snapshot = snapshot()
+
+    incident_record = None
+    if HAS_DB:
+        try:
+            incident_record = log_incident({
+                "ambulance_id": "AMB-07",
+                "ambulance_lat": patient.ambulance_lat,
+                "ambulance_lng": patient.ambulance_lng,
+                "symptoms": patient.symptoms,
+                "severity": triage["severity"],
+                "vitals": patient.vitals,
+                "allocated_hospital_id": allocated_hospital_copy["id"],
+                "allocated_hospital_name": allocated_hospital_copy["name"],
+                "specialty_required": req_spec,
+                "specialty_matched": specialty_match,
+                "eta_mins": round(estimated_time_mins, 1),
+                "distance_km": round(distance_km, 2),
+                "status": "DISPATCHED",
+            })
+        except Exception:
+            pass
 
     # Broadcast updated hospital state across WebSocket connections outside the critical lock section
     await broadcast_updates()
@@ -153,6 +208,7 @@ async def allocate(patient: PatientRequest) -> dict[str, Any]:
         "specialty_match": specialty_match,
         "allocation_reason": reason,
         "updated_hospitals": updated_hospitals_snapshot,
+        "incident": incident_record,
     }
 
 
@@ -163,9 +219,41 @@ async def update_beds(hospital_id: str, change: BedDelta) -> dict[str, Any]:
         if hospital is None:
             raise HTTPException(status_code=404, detail="Hospital not found.")
         hospital["available_beds"] = max(0, min(hospital["total_beds"], hospital["available_beds"] + change.delta))
+        if HAS_DB:
+            try:
+                save_hospital(hospital)
+            except Exception:
+                pass
         hospital_copy = deepcopy(hospital)
         updated_snapshot = snapshot()
     
+    await broadcast_updates()
+    return {"hospital": hospital_copy, "updated_hospitals": updated_snapshot}
+
+
+class SpecialtyDelta(BaseModel):
+    specialty: str
+    delta: int = Field(..., ge=-1, le=1)
+
+
+@app.post("/api/hospitals/{hospital_id}/specialties")
+async def update_specialty_beds(hospital_id: str, change: SpecialtyDelta) -> dict[str, Any]:
+    async with allocation_lock:
+        hospital = next((item for item in hospitals if item["id"] == hospital_id), None)
+        if hospital is None:
+            raise HTTPException(status_code=404, detail="Hospital not found.")
+        if "specialties" not in hospital:
+            hospital["specialties"] = {}
+        curr = hospital["specialties"].get(change.specialty, 0)
+        hospital["specialties"][change.specialty] = max(0, curr + change.delta)
+        if HAS_DB:
+            try:
+                save_hospital(hospital)
+            except Exception:
+                pass
+        hospital_copy = deepcopy(hospital)
+        updated_snapshot = snapshot()
+
     await broadcast_updates()
     return {"hospital": hospital_copy, "updated_hospitals": updated_snapshot}
 
@@ -175,9 +263,43 @@ async def reset_hospitals() -> list[dict[str, Any]]:
     async with allocation_lock:
         hospitals.clear()
         hospitals.extend(deepcopy(DEFAULT_HOSPITALS))
+        if HAS_DB:
+            try:
+                reset_hospitals_db(DEFAULT_HOSPITALS)
+            except Exception:
+                pass
         updated_snapshot = snapshot()
     await broadcast_updates()
     return updated_snapshot
+
+
+@app.get("/api/incidents")
+def list_incidents(limit: int = 50) -> list[dict[str, Any]]:
+    if HAS_DB:
+        try:
+            return get_incidents(limit=limit)
+        except Exception:
+            return []
+    return []
+
+
+class IncidentStatusUpdate(BaseModel):
+    status: str
+
+
+@app.post("/api/incidents/{incident_id}/status")
+def set_incident_status(incident_id: str, payload: IncidentStatusUpdate) -> dict[str, Any]:
+    if HAS_DB:
+        try:
+            success = update_incident_status(incident_id, payload.status)
+            if not success:
+                raise HTTPException(status_code=404, detail="Incident not found.")
+            return {"status": "updated", "incident_id": incident_id, "new_status": payload.status}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(status_code=501, detail="Incident persistence not active.")
 
 
 @app.post("/api/dispatch/parse")
@@ -200,15 +322,36 @@ async def dispatch_ws(websocket: WebSocket):
     await websocket.accept()
     connected_clients.append(websocket)
     try:
+        await websocket.send_text(json.dumps({"type": "update", "hospitals": snapshot()}))
+    except Exception:
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
+        return
+
+    try:
         while True:
             payload = await websocket.receive_text()
-            data = json.loads(payload)
-            await websocket.send_json({
-                "type": "stream",
-                "ambulance": data,
-                "eta": 12.5,
-                "status": "en route",
-                "hospitals": snapshot(),
-            })
+            try:
+                data = json.loads(payload)
+                if isinstance(data, dict):
+                    msg_type = data.get("type")
+                    if msg_type == "ping":
+                        await websocket.send_text(json.dumps({"type": "pong"}))
+                    elif msg_type == "request_update":
+                        await websocket.send_text(json.dumps({"type": "update", "hospitals": snapshot()}))
+                    elif "ambulance" in data or "lat" in data:
+                        await websocket.send_text(json.dumps({
+                            "type": "telemetry_ack",
+                            "status": "received",
+                            "hospitals": snapshot(),
+                        }))
+            except (json.JSONDecodeError, TypeError):
+                if payload.strip().lower() == "ping":
+                    await websocket.send_text("pong")
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
+        pass
+    except Exception:
+        pass
+    finally:
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)

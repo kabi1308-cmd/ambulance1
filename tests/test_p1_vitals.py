@@ -57,6 +57,20 @@ class TestClinicalVitalsAllocation(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res["specialty_match"])
         self.assertEqual(res["allocated_hospital"]["specialties"]["Burn Unit"], 0)
 
+    async def test_acute_stroke_selects_neuro_icu(self):
+        # Acute stroke symptoms must prioritize Neuro ICU over broad general ICU
+        req = main.PatientRequest(
+            ambulance_lat=13.0827,
+            ambulance_lng=80.2707,
+            symptoms="acute stroke, facial drooping, right-sided hemiparesis",
+            severity=5,
+            vitals={"pulse": 88, "spo2": 96}
+        )
+        res = await main.allocate(req)
+        self.assertEqual(res["triage"]["specialty_required"], "Neuro ICU")
+        self.assertTrue(res["specialty_match"])
+        self.assertEqual(res["allocated_hospital"]["specialties"]["Neuro ICU"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
